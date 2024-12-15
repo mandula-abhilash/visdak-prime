@@ -6,7 +6,6 @@ from langchain.chains.sql_database.query import create_sql_query_chain
 from langchain_community.utilities import SQLDatabase
 from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough, RunnableSequence
 from sqlalchemy import create_engine, text
 
 # Load environment variables from .env file
@@ -32,24 +31,37 @@ response_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
 # Define a custom prompt for SQL query generation
 query_template = '''Given an input question, create a syntactically correct PostgreSQL query to run.
 Return ONLY the SQL query without any additional text.
+Be smart about the type of query needed based on the question.
+
+Possible strategies:
+- Use COUNT(*) to count matching rows
+- Use SELECT * to fetch full details
+- Use appropriate WHERE clauses to filter
 
 Only use the following tables:
-
 {table_info}
 
 Limit the results to {top_k} rows.
 
 Question: {input}'''
 
-query_prompt = PromptTemplate.from_template(query_template)
+query_prompt = PromptTemplate(
+    template=query_template,
+    input_variables=["input", "table_info", "top_k"]
+)
 
 # Define a prompt for formatting the response
-response_template = '''Based on the SQL query result, craft a human-readable response to the original question.
+response_template = '''Analyze the SQL query result and provide a clear, concise response to the original question.
 
 Original Question: {input}
 SQL Query Result: {sql_result}
 
-Provide a clear, concise answer that directly addresses the question. Use natural language and make the response easy to understand.'''
+Strategies for response:
+- If result is a count, summarize the number
+- If result is full rows, describe the details
+- Use natural language and be informative
+
+Your response should directly address the question and provide meaningful insights.'''
 
 response_prompt = PromptTemplate(
     input_variables=["input", "sql_result"],
@@ -62,27 +74,30 @@ def extract_sql_query(llm_output):
     clean_output = llm_output.replace('```sql', '').replace('```', '').strip()
     
     # Try to extract query using regex
-    match = re.search(r'SELECT.*?;', clean_output, re.DOTALL)
+    match = re.search(r'SELECT.*?;', clean_output, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(0)
     
     # If no match, return the entire cleaned output
     return clean_output
 
-# Chain to generate SQL query
-write_query = create_sql_query_chain(query_llm, db, prompt=query_prompt)
-
 # Create an SQLAlchemy engine
 engine = create_engine(POSTGRES_URI)
 
 def get_sql_query_result(question, table_info='tasks', top_k=5):
     try:
-        # Generate the SQL query using the chain
-        generated_query = write_query.invoke({
-            "question": question, 
-            "top_k": top_k, 
-            "table_info": table_info
-        })
+        # Modify the query generation to use a different approach
+        # Use the database's sample tables to inform the query
+        table_sample = db.get_table_info(table_names=[table_info])
+        
+        # Generate the SQL query
+        generated_query = query_llm.invoke(
+            query_prompt.format(
+                input=question, 
+                table_info=table_sample, 
+                top_k=top_k
+            )
+        ).content
         
         # Extract clean SQL query
         clean_query = extract_sql_query(generated_query)
@@ -94,8 +109,16 @@ def get_sql_query_result(question, table_info='tasks', top_k=5):
             result = connection.execute(text(clean_query))
             rows = result.fetchall()  # Fetch all rows
 
-        # Format the results as a string
-        result_str = ", ".join(str(row[0]) for row in rows)
+        # Determine how to format the result based on the query
+        if 'COUNT(' in clean_query or 'count(' in clean_query:
+            # Count query
+            result_str = str(rows[0][0]) if rows else "0"
+        elif '*' in clean_query:
+            # Full details query
+            result_str = "\n".join([str(row) for row in rows])
+        else:
+            # Generic fallback
+            result_str = ", ".join(str(row[0]) for row in rows)
         
         # Generate a human-readable response using LLM
         response = response_llm.invoke(
@@ -111,7 +134,14 @@ def get_sql_query_result(question, table_info='tasks', top_k=5):
         return f"Error processing the query: {e}"
 
 # Example usage
-question = "How many documentation tasks are there in total?"
-response = get_sql_query_result(question)
-print("\nFormatted Response:")
-print(response)
+questions = [
+    "How many documentation tasks are there in total?",
+    "Are there any memory leak issue related tasks?",
+    "List memory leak related tasks",
+    "List some high priority tasks which are very critical and I must do now"
+]
+
+for question in questions:
+    print(f"\nQuestion: {question}")
+    response = get_sql_query_result(question)
+    print("Response:", response)
