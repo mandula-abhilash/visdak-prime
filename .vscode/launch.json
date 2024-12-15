@@ -17,6 +17,14 @@
       "envFile": "${workspaceFolder}/.env",
       "jinja": true,
       "justMyCode": false
+    },
+    {
+      "name": "Python: Test Script",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/test.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
     }
   ]
 }
