@@ -3,12 +3,9 @@ from dotenv import load_dotenv
 
 from langchain.chains.sql_database.query import create_sql_query_chain
 from langchain_community.utilities import SQLDatabase
-from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
-from langchain.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
 from langchain.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
-from operator import itemgetter
+from sqlalchemy import create_engine, text
 
 # Load environment variables from .env file
 load_dotenv()
@@ -51,35 +48,34 @@ prompt = PromptTemplate.from_template(template)
 # Chain to generate SQL query
 write_query = create_sql_query_chain(llm, db, prompt=prompt)
 
-# Tool to execute the SQL query
-execute_query = QuerySQLDataBaseTool(db=db)
-
-# Define an answer generation prompt
-answer_prompt = PromptTemplate.from_template(
-    """Given the following user question, corresponding SQL query, and SQL result, answer the user question.
-
-Question: {question}
-SQL Query: {query}
-SQL Result: {result}
-Answer: """
-)
-
-# Parse the final answer
-answer = answer_prompt | llm | StrOutputParser()
-
-# Combine chains: Generate query, execute, and parse the answer
-chain = (
-    RunnablePassthrough.assign(query=write_query).assign(
-        result=itemgetter("query") | execute_query
-    )
-    | answer
-)
-
 # Example question
 question = "How many documentation tasks are there in total?"
 
-# Invoke the chain
-response = chain.invoke({"question": question, "top_k": 5, "table_info": "tasks"})
+# Create an SQLAlchemy engine
+engine = create_engine(POSTGRES_URI)
 
-# Print the final response
-print(response)
+# Generate the SQL query using the chain
+response = write_query.invoke({"question": question, "top_k": 5, "table_info": "tasks"})
+
+# Ensure the response contains a valid SQL query
+if isinstance(response, str):
+    # Clean the generated query to remove unnecessary formatting
+    generated_query = response.strip()
+    generated_query = generated_query.replace("```sql", "").replace("```", "").strip()
+    
+    print(f"Generated SQL Query:\n{generated_query}\n")
+    
+    try:
+        # Execute the query and fetch the results
+        with engine.connect() as connection:
+            result = connection.execute(text(generated_query))
+            rows = result.fetchall()  # Fetch all rows
+
+        # Print the query results
+        print("Query Results:")
+        for row in rows:
+            print(row)
+    except Exception as e:
+        print(f"Error executing the query: {e}")
+else:
+    print("Failed to generate a valid SQL query.")
