@@ -76,10 +76,10 @@ chain = (
 )
 
 # Example question
-question = "What are todays tasks?"
+question = "How many documentation tasks are there in total?"
 
 # Invoke the chain
-response = chain.invoke({"question": question, "top_k": 5, "table_info": "regions, ward, parish, county"})
+response = chain.invoke({"question": question, "top_k": 5, "table_info": "tasks"})
 
 # Print the final response
 print(response)
