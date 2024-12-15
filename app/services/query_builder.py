@@ -1,86 +1,42 @@
-from langchain_community.llms import OpenAI
-from langchain.chains import LLMChain
-from langchain.prompts import PromptTemplate
-from typing import Dict, Tuple, Optional
-import json
-from .templates.query_prompts import QueryPrompts
+from typing import Dict, Tuple
+from langchain.chains import create_sql_query_chain
+from langchain.sql_database import SQLDatabase
+from .database.connection import get_db_engine
+from .llm.openai_client import get_llm
 
 class QueryBuilder:
-    TABLE_INFO = """
-    Table: tasks
-    Columns:
-    - id (integer, primary key)
-    - title (text)
-    - description (text)
-    - priority (text: 'low', 'medium', 'high')
-    - category (text)
-    """
-
-    @staticmethod
-    def parse_llm_response(response: str) -> Tuple[str, str, Dict]:
-        """Parse the LLM response into query, template, and variables."""
-        default_template = "Found {count} matching tasks."
-        default_vars = {"count": "len(results)"}
-        
-        try:
-            # Extract query part
-            query_parts = response.split("TEMPLATE:")
-            if len(query_parts) < 2:
-                return response.strip(), default_template, default_vars
-                
-            query = query_parts[0].replace("QUERY:", "").strip()
-            
-            # Extract template and variables
-            remaining = query_parts[1]
-            template_parts = remaining.split("VARIABLES:")
-            
-            if len(template_parts) < 2:
-                return query, default_template, default_vars
-                
-            template = template_parts[0].strip()
-            variables_str = template_parts[1].strip()
-            
-            try:
-                variables = json.loads(variables_str)
-                if not isinstance(variables, dict):
-                    variables = default_vars
-            except:
-                variables = default_vars
-            
-            # Ensure count is present
-            if "count" not in variables:
-                variables["count"] = "len(results)"
-                
-            return query, template, variables
-            
-        except Exception as e:
-            # If anything fails, return defaults
-            return response.strip(), default_template, default_vars
-
     @staticmethod
     def build_query(question: str) -> Tuple[str, str, Dict]:
         """
-        Build an SQL query and response template based on the user's question.
+        Build an SQL query using LangChain's SQL query chain.
         Returns:
             Tuple[str, str, Dict]: SQL query, response template, and template variables
         """
         try:
-            prompt = PromptTemplate(
-                input_variables=["question", "table_info"],
-                template=QueryPrompts.SQL_GENERATION_TEMPLATE
-            )
-
-            llm = OpenAI(temperature=0)
-            chain = LLMChain(llm=llm, prompt=prompt)
+            # Get database engine
+            engine = get_db_engine()
             
-            result = chain.run({
-                "question": question,
-                "table_info": QueryBuilder.TABLE_INFO
-            })
-
-            return QueryBuilder.parse_llm_response(result)
+            # Create SQL database wrapper
+            db = SQLDatabase(engine)
+            
+            # Get LLM
+            llm = get_llm()
+            
+            # Create SQL query chain
+            chain = create_sql_query_chain(llm, db)
+            
+            # Generate SQL query
+            sql_query = chain.invoke({"question": question})
+            
+            # Default template and variables
+            template = "Found {count} matching tasks."
+            variables = {"count": "len(results)"}
+            
+            return sql_query, template, variables
+            
         except Exception as e:
-            # Fallback to a basic query if LLM fails
+            print(f"Error generating SQL query: {e}")
+            # Fallback to a basic query if chain fails
             return (
                 "SELECT * FROM tasks",
                 "Found {count} tasks.",
