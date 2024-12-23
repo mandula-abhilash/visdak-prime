@@ -94,10 +94,10 @@ def find_similar_documents(query_embedding: np.ndarray, limit=5, similarity_thre
 if __name__ == "__main__":
     # Example questions
     questions = [
-        "What does the PDF say about software architecture?",
-        "Tell me about any testing strategies mentioned.",
-        "Are there any references to memory leaks?",
-        "Is there a conclusion or summary in the document?",
+        "What is the prevalence of HPV in oral cavity cancer?",
+        "What are the objectives of the study?",
+        "What does the PDF say about the anatomical structure of the oral cavity?",
+        "What conclusions were drawn regarding HPV-positive patients?",
     ]
 
     for question in questions:
