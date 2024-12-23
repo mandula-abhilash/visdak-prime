@@ -73,10 +73,7 @@ def find_similar_records(question, top_k=5):
         if len(question_embedding) != 1536:
             return f"Error: Embedding dimension {len(question_embedding)} does not match VECTOR(1536)."
 
-        # Convert numpy array into a pgvector-compatible string, e.g. '{0.12,0.98,...}'
-        # Use .6f (or other precision) to ensure consistent formatting
-        embedding_str_values = [f"{float(val):.6f}" for val in question_embedding]
-        embedding_str = "{" + ",".join(embedding_str_values) + "}"
+        embedding_str = f"[{','.join(f'{float(val):.6f}' for val in question_embedding)}]"
 
         # Remove the ::vector cast; pass the string directly
         query_str = f"""
@@ -95,7 +92,7 @@ def find_similar_records(question, top_k=5):
                 text(query_str),
                 {"embedding": embedding_str, "top_k": top_k}
             )
-            records = result.fetchall()
+            records = [dict(row._mapping) for row in result]
 
         # Format the results
         similar_records = [
