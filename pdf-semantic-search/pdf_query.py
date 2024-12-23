@@ -15,6 +15,8 @@ from sqlalchemy.ext.declarative import declarative_base
 from pgvector.sqlalchemy import Vector
 from dotenv import load_dotenv
 from openai import OpenAI
+from langchain.prompts import PromptTemplate
+from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
@@ -30,7 +32,8 @@ DATABASE_URL = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DA
 N_DIM = 1536
 
 Base = declarative_base()
-engine = create_engine(DATABASE_URL, echo=True)  # Enable echo to debug SQL queries
+# engine = create_engine(DATABASE_URL, echo=True)  # Enable echo to debug SQL queries
+engine = create_engine(DATABASE_URL)  # Enable echo to debug SQL queries
 SessionLocal = sessionmaker(bind=engine)
 
 class PdfDocument(Base):
@@ -42,6 +45,22 @@ class PdfDocument(Base):
     embedding = Vector(N_DIM)
 
 Base.metadata.create_all(engine)
+
+response_template = '''Analyze the following matched PDF chunks and provide a concise response to the original question.
+
+Original Question: {input}
+Matched Chunks:
+{similar_records}
+
+Strategies for response:
+- Summarize the key points from the matched chunks.
+- If no chunks match closely, explain the lack of results.
+- Provide clear, actionable insights based on the available information.'''
+
+response_prompt = PromptTemplate(
+    input_variables=["input", "similar_records"],
+    template=response_template
+)
 
 def create_embedding(text: str) -> np.ndarray:
     try:
@@ -91,6 +110,24 @@ def find_similar_documents(query_embedding: np.ndarray, limit=5, similarity_thre
     finally:
         session.close()
 
+def get_semantic_response(question: str, results):
+    if not results:
+        similar_records_str = "No matching chunks found."
+    else:
+        similar_records_str = "\n".join(
+            [f"Chunk ID: {row.id}, Page: {row.page_number}, Content: {row.content[:200]}..." for row in results]
+        )
+
+    response_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    response = response_llm.invoke(
+        response_prompt.format(
+            input=question,
+            similar_records=similar_records_str
+        )
+    ).content
+
+    return response
+
 if __name__ == "__main__":
     # Example questions
     questions = [
@@ -116,12 +153,7 @@ if __name__ == "__main__":
             similarity_threshold=0.7 # how strict the similarity is
         )
 
-        if not results:
-            print("No similar text found for this question.\n")
-            continue
-
-        # Print out the results
-        for row in results:
-            print(f" - Chunk ID: {row.id}, Filename: {row.filename}, Page: {row.page_number}, Similarity: {row.similarity:.4f}")
-            print(f"   Content: {row.content[:200]}...")  # print partial content
+        # Generate response from matched chunks
+        response = get_semantic_response(question, results)
+        print("Response:", response)
         print()
