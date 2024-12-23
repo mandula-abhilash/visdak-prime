@@ -1,28 +1,36 @@
 {
   "version": "0.2.0",
   "configurations": [
+    // {
+    //   "name": "Obsolete : Python : FastAPI",
+    //   "type": "debugpy",
+    //   "request": "launch",
+    //   "module": "uvicorn",
+    //   "args": [
+    //     "app.main:app",
+    //     "--host",
+    //     "127.0.0.1",
+    //     "--port",
+    //     "8000",
+    //     "--reload"
+    //   ],
+    //   "envFile": "${workspaceFolder}/.env",
+    //   "jinja": true,
+    //   "justMyCode": false
+    // },
     {
-      "name": "Python : FastAPI",
+      "name": "Python: Debug Dynamic SQL Query Script",
       "type": "debugpy",
       "request": "launch",
-      "module": "uvicorn",
-      "args": [
-        "app.main:app",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8000",
-        "--reload"
-      ],
-      "envFile": "${workspaceFolder}/.env",
-      "jinja": true,
-      "justMyCode": false
+      "program": "${workspaceFolder}/dynamic_sql_query.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
     },
     {
-      "name": "Python: Test Script",
+      "name": "Python: Debug Semantic Search PGVector Script",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/test.py",
+      "program": "${workspaceFolder}/semantic_search_pgvector.py",
       "console": "integratedTerminal",
       "justMyCode": true
     }
