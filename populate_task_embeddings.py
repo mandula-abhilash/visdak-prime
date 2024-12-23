@@ -97,10 +97,11 @@ def populate_task_embeddings():
             print(f"Generated embedding of length: {len(embedding)}")
 
             try:
-                # Insert into task_embeddings table
+                # Use a single connection for both insert and verify
                 with engine.connect() as connection:
                     # Begin transaction
                     with connection.begin():
+                        # Insert the embedding
                         connection.execute(
                             text("""
                                 INSERT INTO task_embeddings 
@@ -120,25 +121,22 @@ def populate_task_embeddings():
                                 "embedding": embedding.tolist()
                             }
                         )
-                print(f"Task_id {task_id} inserted successfully.")
-
-                # Verify the insertion
-                with connection.begin():
-                    result = connection.execute(
-                        text("SELECT embedding FROM task_embeddings WHERE task_id = :task_id"),
-                        {"task_id": task_id}
-                    )
-                    stored_embedding = result.scalar()
-                    if stored_embedding is None:
-                        print(f"Warning: Failed to verify insertion for task_id {task_id}")
-                    else:
-                        print(f"Verified: Embedding stored successfully for task_id {task_id}")
+                        
+                        # Verify the insertion within the same transaction
+                        result = connection.execute(
+                            text("SELECT embedding FROM task_embeddings WHERE task_id = :task_id"),
+                            {"task_id": task_id}
+                        )
+                        stored_embedding = result.scalar()
+                        
+                        if stored_embedding is None:
+                            print(f"Warning: Failed to verify insertion for task_id {task_id}")
+                        else:
+                            print(f"Task_id {task_id} inserted and verified successfully")
 
             except Exception as e:
-                print(f"Error inserting task_id {task_id}: {e}")
+                print(f"Error processing task_id {task_id}: {e}")
                 continue
-
-        print("\nTask embeddings table population completed.")
 
         # Final verification
         with engine.connect() as connection:
@@ -146,11 +144,10 @@ def populate_task_embeddings():
                 text("SELECT COUNT(*) FROM task_embeddings")
             )
             count = result.scalar()
-            print(f"Total records in task_embeddings table: {count}")
+            print(f"\nTotal records in task_embeddings table: {count}")
 
     except Exception as e:
         print(f"Error populating task_embeddings table: {e}")
 
-# Run the script
 if __name__ == "__main__":
     populate_task_embeddings()
