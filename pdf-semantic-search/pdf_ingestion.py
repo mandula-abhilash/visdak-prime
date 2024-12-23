@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from pypdf import PdfReader
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, text, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pgvector.sqlalchemy import Vector
@@ -22,7 +22,7 @@ DATABASE_URL = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DA
 N_DIM = 1536
 
 Base = declarative_base()
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, echo=True)  # Enable echo to debug SQL queries
 SessionLocal = sessionmaker(bind=engine)
 
 class PdfDocument(Base):
@@ -64,11 +64,9 @@ def create_embedding(text: str) -> np.ndarray:
             input=[text]
         )
         embedding = response.data[0].embedding
-        if len(embedding) != 1536:
+        if len(embedding) != N_DIM:
             raise ValueError(f"Unexpected embedding dimension: {len(embedding)}")
-        
-        # Convert to numpy array for compatibility with pgvector
-        return np.array(embedding, dtype=np.float32)
+        return np.array(embedding, dtype=np.float32)  # Convert to numpy array for compatibility
     except Exception as e:
         print(f"Error generating embedding: {e}")
         return None
@@ -94,15 +92,18 @@ def ingest_pdf(file_path: str):
                     print(f"Skipping chunk {i}: embedding generation failed")
                     continue
                 
-                print(f"Embedding type: {type(embedding)}, length: {len(embedding)}")
-                # Create document
-                doc = PdfDocument(
-                    filename=file_path,
-                    page_number=i,
-                    content=chunk,
-                    embedding=embedding
+                # Convert embedding to string for insertion
+                embedding_str = f"[{','.join(f'{float(val):.6f}' for val in embedding)}]"
+                
+                # Insert into database using raw SQL
+                query_str = """
+                INSERT INTO pdf_documents (filename, page_number, content, embedding)
+                VALUES (:filename, :page_number, :content, :embedding);
+                """
+                session.execute(
+                    text(query_str),
+                    {"filename": file_path, "page_number": i, "content": chunk, "embedding": embedding_str}
                 )
-                session.add(doc)
                 session.commit()
                 print(f"Successfully inserted chunk {i}")
                 
