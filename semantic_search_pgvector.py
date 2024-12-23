@@ -69,29 +69,44 @@ def find_similar_records(question, top_k=5):
         if question_embedding is None:
             return f"Error: Could not generate embedding for question: '{question}'"
 
-        # SQL query to perform semantic search using cosine similarity
-        query = f"""
-        SELECT task_id, {TEXT_COLUMN}, cosine_similarity({VECTOR_COLUMN}, :embedding) AS similarity
+        # Ensure the dimension is 1536 if your column is VECTOR(1536)
+        if len(question_embedding) != 1536:
+            return f"Error: Embedding dimension {len(question_embedding)} does not match VECTOR(1536)."
+
+        # Convert numpy array into a pgvector-compatible string, e.g. '{0.12,0.98,...}'
+        # Use .6f (or other precision) to ensure consistent formatting
+        embedding_str_values = [f"{float(val):.6f}" for val in question_embedding]
+        embedding_str = "{" + ",".join(embedding_str_values) + "}"
+
+        # Remove the ::vector cast; pass the string directly
+        query_str = f"""
+        SELECT 
+            task_id, 
+            {TEXT_COLUMN} AS description,
+            1 - ({VECTOR_COLUMN} <=> :embedding) AS similarity
         FROM {VECTOR_TABLE}
-        ORDER BY similarity DESC
-        LIMIT :top_k
+        WHERE {VECTOR_COLUMN} IS NOT NULL
+        ORDER BY {VECTOR_COLUMN} <=> :embedding
+        LIMIT :top_k;
         """
 
-        # Execute the query
         with engine.connect() as connection:
             result = connection.execute(
-                text(query), {"embedding": question_embedding.tolist(), "top_k": top_k}
+                text(query_str),
+                {"embedding": embedding_str, "top_k": top_k}
             )
             records = result.fetchall()
 
         # Format the results
         similar_records = [
-            {"id": row[0], "text": row[1], "similarity": row[2]} for row in records
+            {"id": row["task_id"], "text": row["description"], "similarity": float(row["similarity"])} 
+            for row in records
         ]
         return similar_records
 
     except Exception as e:
-        return f"Error performing semantic search: {e}"
+        print(f"Error : {str(e)}")
+        return f"Error performing semantic search: {str(e)}"
 
 # Function to generate a response
 def get_semantic_search_response(question, top_k=5):
@@ -99,7 +114,7 @@ def get_semantic_search_response(question, top_k=5):
         # Perform the semantic search
         similar_records = find_similar_records(question, top_k)
 
-        # Check if there are any results
+        # Check if there are any results or errors
         if isinstance(similar_records, str):  # Error case
             return similar_records
 
